@@ -1,4 +1,7 @@
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 
 public class GameManager : MonoBehaviour
 {
@@ -11,5 +14,10 @@ public class GameManager : MonoBehaviour
         {
             secretDoor.SetActive(false); 
         }
+}
+
+    public void LoadScene()
+    {
+        SceneManager.LoadScene("OrangeRun");
     }
 }

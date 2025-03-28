@@ -7,22 +7,21 @@ using UnityEngine.UI;
 using System.Globalization;
 using static UnityEngine.EventSystems.EventTrigger;
 using TMPro;
-public class PlayerController : MonoBehaviour
+public class OrangeController : MonoBehaviour
 {
     [Header("Movement")]
     public float walkSpeed;
     public float sprintSpeed;
-    public float crouchSpeed;
     [SerializeField] float sprintRechargeDelay = 2;
     float sprintRechargeTimer;
     float currentMoveSpeed;
     float desiredMoveSpeed;
 
-    [Header("Crouching")]
-    public float crouchYScale;
-    float startYScale;
-    public float ceilingDist;
-    bool canStand;
+    [Header("Jumping")]
+    public float jumpForce;
+    public float jumpCooldown;
+    public float airMultiplier;
+    bool readyToJump;
 
     [Header("Ground Check")]
     public float playerHeight;
@@ -31,7 +30,6 @@ public class PlayerController : MonoBehaviour
     public float groundDrag;
 
     [Header("Keybinds")]
-    public KeyCode crouchKey = KeyCode.C;
     public KeyCode sprintKey = KeyCode.LeftShift;
     public KeyCode jumpKey = KeyCode.Space;
 
@@ -45,22 +43,15 @@ public class PlayerController : MonoBehaviour
     public Transform orientation;
     Vector3 spawnPoint;
     Rigidbody rb;
-    Collider col;
 
     float horizontalInput;
     float verticalInput;
     Vector3 moveDirection;
 
-    public TextMeshProUGUI orangeCount_UI;
-    public GameObject interact_Text;
-    public GameObject consume_Text;
-    public static int numberOfOranges = 0;
-    [SerializeField] float pickUpDistance = 1;
-
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        crouching = false;
+        readyToJump = true;
         canSprint = true;
         desiredMoveSpeed = walkSpeed;
         sprinting = false;
@@ -71,10 +62,7 @@ public class PlayerController : MonoBehaviour
         spawnPoint = transform.position;
 
         rb = GetComponent<Rigidbody>();
-        col = GetComponent<Collider>();
         rb.freezeRotation = true;
-
-        startYScale = transform.localScale.y;
     }
 
     // Update is called once per frame
@@ -87,28 +75,9 @@ public class PlayerController : MonoBehaviour
 
         playerIsMoving = (Mathf.Abs(Input.GetAxisRaw("Horizontal")) + Mathf.Abs(Input.GetAxisRaw("Vertical")) > 0.1f);
 
-
-        //ceiling Check
-        float colBottom = col.bounds.min.y;
-        float colHeight = col.bounds.max.y - col.bounds.min.y;
-        Vector3 bottomPos = new Vector3(transform.position.x, colBottom, transform.position.z);
-        Debug.DrawRay(bottomPos, Vector3.up*colHeight, Color.green);
-
-        RaycastHit ceilingHit;
-
-        if(Physics.Raycast(bottomPos, Vector3.up, out ceilingHit, colHeight * 1.2f))
-        {
-            Debug.Log("CEILING");
-            canStand = false;
-        }
-        else { canStand = true; }
-
-
-            MyInput();
+        MyInput();
         speedControl();
         RechargeSprint();
-
-        orangeCount_UI.text = numberOfOranges.ToString("") + " / 24";
 
         if (grounded)
         {
@@ -119,45 +88,13 @@ public class PlayerController : MonoBehaviour
             rb.linearDamping = 0;
         }
 
-        Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-        RaycastHit hit;
-
-        if (Physics.Raycast(ray, out hit, pickUpDistance))
+        if (gameObject.transform.position.y < -40f)
         {
-            if (hit.collider.name == "Orange")
-            {
-                // Show interact text if the player is looking at an object they can interact with
-                interact_Text.SetActive(true);
-                if (Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(KeyCode.Mouse0))
-                {
-                    // Here you can add code to pick up the object
-                    Debug.Log("Picked up " + hit.collider.name);
-                    // For example, destroy the object or add it to inventory
-                    Destroy(hit.collider.gameObject);
-                    numberOfOranges += 1;
-                }
-            }
-            else
-            {
-                interact_Text.SetActive(false);
-            }
-
-            if (hit.collider.name == "Final Orange")
-            {
-                consume_Text.SetActive(true);
-
-                if (Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(KeyCode.Mouse0))
-                {
-                    SceneManager.LoadScene("Win");
-                }
-            }
-            else
-            {
-                consume_Text.SetActive(false);
-            }
+            SceneManager.LoadScene(SceneManager.GetActiveScene().name);
         }
 
-        //Debug.Log(currentMoveSpeed);
+
+        Debug.Log(currentMoveSpeed);
     }
 
     private void FixedUpdate()
@@ -175,56 +112,37 @@ public class PlayerController : MonoBehaviour
         StopAllCoroutines();
         StartCoroutine(SmoothlyLerpMoveSpeed());
 
-        // Start Crouching
-        if (Input.GetKeyDown(crouchKey) && CanCrouch())
-        {
-            desiredMoveSpeed = crouchSpeed;
-
-            transform.localScale = new Vector3(transform.localScale.x, crouchYScale, transform.localScale.z);
-            rb.AddForce(Vector3.down * 5f, ForceMode.Impulse);
-
-            crouching = true;
-            sprinting = false;
-
-            //Debug.Log("Crouching");
-        }
-
-        // Stop Crouching
-        else if (Input.GetKeyUp(crouchKey) && grounded && canStand == false)
-        {
-            desiredMoveSpeed = walkSpeed;
-            transform.localScale = new Vector3(transform.localScale.x, startYScale, transform.localScale.z);
-
-            crouching = false;
-        }
-
         // Sprinting
-        else if (Input.GetKey(sprintKey) && grounded && crouching == false && sprintTime > 0f)
+        if (Input.GetKey(sprintKey) && grounded && sprintTime > 0f)
         {
             sprintRechargeTimer = sprintRechargeDelay;
 
             sprintTime -= Time.deltaTime;
             desiredMoveSpeed = sprintSpeed;
             sprinting = true;
+        }
 
-            //Debug.Log("Running");
+        // Jumping 
+        else if (Input.GetKey(jumpKey) && readyToJump && grounded)
+        {
+            readyToJump = false;
+
+            rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0f, rb.linearVelocity.z);
+
+            rb.AddForce(transform.up * jumpForce, ForceMode.Impulse);
+
+            Invoke(nameof(ResetJump), jumpCooldown);
         }
 
         // Walking
-        else if (grounded && crouching == false)
+        else if (grounded)
         {
             desiredMoveSpeed = walkSpeed;
 
             sprinting = false;
-
-            //Debug.Log("Walking");
         }
     }
 
-    public bool CanCrouch()
-    {
-        return grounded;
-    }
 
     // Here is the method used to move the player
     void PlayerMovement()
@@ -265,6 +183,12 @@ public class PlayerController : MonoBehaviour
         currentMoveSpeed = Mathf.Lerp(currentMoveSpeed, desiredMoveSpeed, Time.deltaTime);
 
         yield return null;
+    }
+
+    // Prevents jumping multiple times
+    void ResetJump()
+    {
+        readyToJump = true;
     }
 
     // Recharges sprint when not running
